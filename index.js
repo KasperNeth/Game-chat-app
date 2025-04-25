@@ -100,7 +100,8 @@ io.on("connection", (socket) => {
       return;
     }
     
-    const player = Object.values(session.players).find(p => p.socketId === socket.id);
+     // Direct access instead of find()
+     const player = session.players[socket.id];
     
     if (!player) {
       socket.emit("error", "You are not part of this session");
