@@ -3,7 +3,8 @@ const { Server } = require("socket.io");
 const app = require("./app");
 const { generateSessionCode, formatTimestamp } = require("./src/utils/session");
 const {validateUsername,validateSessionId,validateGameInput} = require("./src/validations/input");
-const {createSession,findSessionById,canJoinSession,canStartGame, canSubmitGuess} = require("./src/utils/session.helper");
+const {createSession, findSessionById, canJoinSession, canStartGame, canSubmitGuess,handleNextQuestionOrRotate 
+} = require("./src/utils/session.helper");
 const handleSessionCleanup = require("./src/utils/session.cleanup");
 
 require("dotenv").config();
@@ -100,7 +101,7 @@ io.on("connection", (socket) => {
       return;
     }
     
-     // Direct access instead of find()
+     // Direct access to players object
      const player = session.players[socket.id];
     
     if (!player) {
@@ -131,7 +132,7 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("start_game", ({ sessionId, question, answer }) => {
+  socket.on("start_game", ({ sessionId, questions, answer }) => {
     const session = findSessionById(sessions, sessionId);
     
     if (!canStartGame(session, socket.id, session?.getPlayersCount())) {
@@ -140,18 +141,39 @@ io.on("connection", (socket) => {
       socket.emit("error", errorMsg);
       return;
     }
-    
-    const gameInput = validateGameInput(question, answer);
-    
-    if (!gameInput.isValid) {
+    // Handle both single question and multiple questions
+    const multipleQuestion = Array.isArray(questions) ? questions : 
+    (questions ? [{ question: questions, answer }] : []);
+
+    if (multipleQuestion.length === 0) {
       socket.emit("error", "Question and answer cannot be empty");
       return;
     }
+        
+    const isValidQuestions = multipleQuestion.filter(que => {
+      if (!que.question || !que.answer) return false;
+      const gameInput = validateGameInput(que.question, que.answer);
+      return gameInput.isValid;
+    });
+    if (isValidQuestions.length === 0) {
+      socket.emit("error", "No valid questions provided. Questions and answers cannot be empty");
+      return;
+    }
+
     
-    session.startGame(gameInput.sanitizedQuestion, gameInput.sanitizedAnswer);
+    // Store all questions in the session
+    session.setQuestions(isValidQuestions);
+
+    // Get the first question to start with
+    const currentQuestion = session.getCurrentQuestion();
+
+    // Start the game with the first question
+    session.startGame(currentQuestion.question, currentQuestion.answer);
+
+
     
     io.to(sessionId).emit("game_started", {
-      question: gameInput.sanitizedQuestion,
+      question: currentQuestion.question,
       timeRemaining: session.timeLimit
     });
     
@@ -168,39 +190,37 @@ io.on("connection", (socket) => {
       timestamp: formatTimestamp()
     });
     
+      const timeUpCallback = () => {
+      io.to(sessionId).emit("game_ended", {
+        winner: null,
+        answer: session.answer,
+        scores: session.getScores()
+      });
+
+      // System message about time running out
+      io.to(sessionId).emit("chat_message", {
+        isSystem: true,
+        content: `Time's up! The correct answer was: ${session.answer}`,
+        timestamp: formatTimestamp()
+      });
+      
+      // Activity log
+      io.to(sessionId).emit("activity_log", {
+        message: "Game ended - Time's up",
+        timestamp: formatTimestamp()
+      });
+      
+      // Check if there are more questions 
+      handleNextQuestionOrRotate(session, sessionId, io);
+    };
+    
     session.startTimer(
       () => {
         io.to(sessionId).emit("time_update", { 
           timeRemaining: session.timeRemaining 
         });
       }, 
-      () => {
-        io.to(sessionId).emit("game_ended", {
-          winner: null,
-          answer: session.answer,
-          scores: session.getScores()
-        });
-        
-        // System message about time running out
-        io.to(sessionId).emit("chat_message", {
-          isSystem: true,
-          content: `Time's up! The correct answer was: ${session.answer}`,
-          timestamp: formatTimestamp()
-        });
-        
-        // Activity log
-        io.to(sessionId).emit("activity_log", {
-          message: "Game ended - Time's up",
-          timestamp: formatTimestamp()
-        });
-        
-        session.rotateGameMaster();
-        
-        io.to(sessionId).emit("game_master_changed", {
-          gameMasterId: session.gameMasterId,
-          gameMasterName: session.players[session.gameMasterId].username
-        });
-      }
+      timeUpCallback
     );
   });
 
@@ -262,13 +282,9 @@ io.on("connection", (socket) => {
       });
       
       socket.emit("you_won");
-      
-      session.rotateGameMaster();
-      
-      io.to(sessionId).emit("game_master_changed", {
-        gameMasterId: session.gameMasterId,
-        gameMasterName: session.players[session.gameMasterId].username
-      });
+
+      // Check if there are more questions 
+      handleNextQuestionOrRotate(session, sessionId, io);
     } else {
       socket.emit("guess_result", {
         correct: false,

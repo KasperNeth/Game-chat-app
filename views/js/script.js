@@ -20,8 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Connect to socket.io server
   const socket = io();
 
-  // DOM Elements
-  // Screens
+  // DOM Elements Screens
   const welcomeScreen = document.getElementById('welcome-screen');
   const lobbyScreen = document.getElementById('lobby-screen');
   const gameScreen = document.getElementById('game-screen');
@@ -110,6 +109,10 @@ document.addEventListener('DOMContentLoaded', () => {
     iconContainer.addEventListener('click', () => {
       const sectionId = iconContainer.dataset.section;
       const section = document.getElementById(sectionId);
+         //update the toggle score board
+      if (sectionId === 'scores-section') {
+        updateScoresSidebar();
+      }
       
       // Hide all sections first
       document.querySelectorAll('.sidebar-section').forEach(s => {
@@ -295,13 +298,64 @@ document.addEventListener('DOMContentLoaded', () => {
     
     return valid;
   }
+  function updateScoresSidebar() {
+    // Get the scores section in the sidebar
+    const scoresSidebar = document.getElementById('scores-section');
+    const scoresContent = scoresSidebar.querySelector('.section-content');
+    
+    // Clear existing content
+    scoresContent.innerHTML = '';
+    
+    // If no scores yet, show a message
+    if (Object.keys(state.scores).length === 0) {
+      const noScoresMsg = document.createElement('div');
+      noScoresMsg.className = 'no-scores-message';
+      noScoresMsg.textContent = 'No scores available yet';
+      scoresContent.appendChild(noScoresMsg);
+      return;
+    }
+    
+    // Sort players by score -highest first
+    const sortedPlayers = Object.keys(state.scores).sort((a, b) => state.scores[b] - state.scores[a]);
+    
+    // Create a score list
+    const scoresList = document.createElement('div');
+    scoresList.className = 'scores-list';
+    
+    sortedPlayers.forEach((username, index) => {
+      const scoreItem = document.createElement('div');
+      scoreItem.className = 'score-item';
+      
+      // Add rank indicator
+      const rankDiv = document.createElement('div');
+      rankDiv.className = 'score-rank';
+      rankDiv.textContent = `#${index + 1}`;
+      
+      const usernameDiv = document.createElement('div');
+      usernameDiv.className = 'score-username';
+      usernameDiv.textContent = username;
+      
+      const pointsDiv = document.createElement('div');
+      pointsDiv.className = 'score-points';
+      pointsDiv.textContent = `${state.scores[username]} pts`;
+      
+      scoreItem.appendChild(rankDiv);
+      scoreItem.appendChild(usernameDiv);
+      scoreItem.appendChild(pointsDiv);
+      scoresList.appendChild(scoreItem);
+    });
+    
+    scoresContent.appendChild(scoresList);
+  }
   
   // Update scores display with improved layout
   function updateScoresDisplay(scores, container) {
     container.innerHTML = '';
-    
-    // Sort players by score (highest first)
-    const sortedPlayers = Object.keys(scores).sort((a, b) => scores[b] - scores[a]);
+
+      // Store scores in state for persistence
+      state.scores = {...state.scores, ...scores}; 
+    // Sort players by score -highest first
+    const sortedPlayers = Object.keys(state.scores).sort((a, b) => state.scores[b] - state.scores[a]);
     
     sortedPlayers.forEach((username, index) => {
       const scoreItem = document.createElement('div');
@@ -325,6 +379,8 @@ document.addEventListener('DOMContentLoaded', () => {
       scoreItem.appendChild(pointsDiv);
       container.appendChild(scoreItem);
     });
+
+    updateScoresSidebar(); // Update sidebar scores section
     
     // If scores update, add a notification indicator
     const scoresIcon = document.querySelector('[data-section="scores-section"] .sidebar-icon');
@@ -344,12 +400,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
+  function getClientTimestamp() {
+    const now = new Date();
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
   
   // Reset game state function
   function resetGameState() {
     // Clear all game messages
     gameMessages.innerHTML = '';
-    activityLog.innerHTML = '';
     
     // Reset UI elements
     winMessage.style.display = 'none';
@@ -500,25 +561,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return questions;
   }
   
-  // Get current question data
-  function getCurrentQuestionData() {
-    const currentSet = document.querySelector(`.question-set[data-index="${state.currentQuestionIndex}"]`);
-    
-    if (currentSet) {
-      const questionInput = currentSet.querySelector('.question-input');
-      const answerInput = currentSet.querySelector('.answer-input');
-      
-      if (questionInput && answerInput && 
-          questionInput.value.trim() && answerInput.value.trim()) {
-        return {
-          question: questionInput.value.trim(),
-          answer: answerInput.value.trim()
-        };
-      }
-    }
-    
-    return null;
-  }
   
   // Send chat message function
   function sendChatMessage(input, container) {
@@ -569,9 +611,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   
-  // Handle session creation with debugging
+  // Handle session creation
   createGameBtn.addEventListener('click', () => {
-    console.log('Create game button clicked');
     const username = usernameInput.value.trim();
     
     if (!username) {
@@ -585,9 +626,8 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.emit('create_session', username);
   });
   
-  // Handle joining a session with debugging
+  // Handle joining a session
   joinGameBtn.addEventListener('click', () => {
-    console.log('Join game button clicked');
     const username = usernameInput.value.trim();
     const sessionId = sessionIdInput.value.trim().toUpperCase();
     
@@ -643,18 +683,34 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Start game button click handler
   startGameBtn.addEventListener('click', () => {
-    const currentQuestion = getCurrentQuestionData();
+
+     // Get all valid questions
+     const allQuestions = getAllQuestionsData();
     
-    if (!currentQuestion) {
-      showNotification('Please enter a valid question and answer');
+  
+    
+    if (allQuestions.length === 0) {
+      showNotification('Please enter at least one valid question and answer');
       return;
     }
     
     socket.emit('start_game', {
       sessionId: state.sessionId,
-      question: currentQuestion.question,
-      answer: currentQuestion.answer
+      questions: allQuestions
     });
+    // Clear all question inputs
+    const questionSets = document.querySelectorAll('.question-set');
+    questionSets.forEach(set => {
+      const questionInput = set.querySelector('.question-input');
+      const answerInput = set.querySelector('.answer-input');
+        
+      if (questionInput && answerInput) {
+          questionInput.value = '';
+          answerInput.value = '';
+      }
+    });
+
+
   });
   
   // Submit guess button click handler
@@ -710,9 +766,9 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('input', updateStartGameButton);
   });
   
-  // Socket.io event handlers with improved logging
+  // Socket.io event handlers 
   socket.on('connect', () => {
-    console.log('Connected to server with ID:', socket.id);
+  
   });
   
   socket.on('connect_error', (error) => {
@@ -726,7 +782,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   
   socket.on('session_created', (data) => {
-    console.log('Session created:', data);
+    
     state.sessionId = data.sessionId;
     state.isGameMaster = data.isGameMaster;
     state.players = data.players;
@@ -756,7 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   
   socket.on('session_joined', (data) => {
-    console.log('Session joined:', data);
+   
     state.sessionId = data.sessionId;
     state.isGameMaster = data.isGameMaster;
     state.players = data.players;
@@ -816,6 +872,11 @@ document.addEventListener('DOMContentLoaded', () => {
   
   socket.on('chat_message', (data) => {
     console.log('Chat message received:', data);
+    const timestamp = getClientTimestamp();
+    const messageData = {
+        ...data,
+        timestamp: timestamp
+    };
     // Add to appropriate chat container
     const currentScreen = document.querySelector('.screen.active').id;
     let container;

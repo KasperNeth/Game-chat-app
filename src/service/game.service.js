@@ -154,7 +154,33 @@ const createTimer = (timeLimit, onTick, onComplete) => {
     stop: () => clearInterval(timerId)
   };
 };
+const setQuestions = (questions, currentState = {}) => {
+  return {
+    ...currentState,
+    questions: questions,
+    currentQuestionIndex: 0
+  };
+};
 
+const getCurrentQuestion = (questions, currentQuestionIndex) => {
+  if (questions.length > 0) {
+    return questions[currentQuestionIndex];
+  }
+  return null;
+};
+
+const moveToNextQuestion = (questions, currentQuestionIndex) => {
+  if (currentQuestionIndex < questions.length - 1) {
+    return {
+      success: true,
+      newIndex: currentQuestionIndex + 1
+    };
+  }
+  return {
+    success: false,
+    newIndex: currentQuestionIndex
+  };
+};
 // Main GameSession class
 class GameSession {
   constructor(sessionId, gameMasterId, gameMasterName) {
@@ -170,6 +196,25 @@ class GameSession {
     this.timeLimit = 60; // Time limit in seconds
     this.timeRemaining = this.timeLimit;
     this.timer = null;
+    this.questions =[];
+    this.currentQuestionIndex= 0;
+  }
+  setQuestions = (questions) => {
+    const result = setQuestions(questions);
+    this.questions = result.questions;
+    this.currentQuestionIndex = result.currentQuestionIndex;
+  }
+  
+  getCurrentQuestion = () => {
+    return getCurrentQuestion(this.questions, this.currentQuestionIndex);
+  }
+  
+  moveToNextQuestion = () => {
+    const result = moveToNextQuestion(this.questions, this.currentQuestionIndex);
+    if (result.success) {
+      this.currentQuestionIndex = result.newIndex;
+    }
+    return result.success;
   }
 
   getPlayers = () => getPlayers(this.players, this.gameMasterId);
