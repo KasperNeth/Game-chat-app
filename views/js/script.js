@@ -890,13 +890,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     if (container) {
-      addChatMessage(data, container);
+      addChatMessage(messageData, container);
     }
     
     // If this is a guess, also display in game messages if we're in game screen
-    if (data.isGuess && currentScreen === 'game-screen') {
-      const isCurrentUser = data.username === state.username;
-      addGameMessage(data.content, isCurrentUser ? 'my-guess' : 'other-player');
+    if (messageData.isGuess && currentScreen === 'game-screen') {
+      const isCurrentUser = messageData.username === state.username;
+      addGameMessage(messageData.content, isCurrentUser ? 'my-guess' : 'other-player');
     }
   });
   
